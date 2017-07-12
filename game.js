@@ -27,6 +27,25 @@ function matchValue(n) {
   if (n > 10) return 7000 + 3000 * (n - 10);
   return MATCH_VALUES[n - 3];
 }
+function spawnNumber(stage, n, x, y) {
+  var ns = "" + n;
+  var offset = 3 * ns.length;
+  for (var i = 0; i < ns.length; ++i) {
+    var sprite = new Sprite(digits[ns[i] - '0']);
+    sprite.x = x + 6 * i - offset;
+    sprite.y = y;
+    sprite.alpha = 1;
+    stage.addChild(sprite);
+  }
+}
+function updateDigitStage(stage) {
+  for (var i = stage.children.length - 1; i >= 0; --i) {
+    var child = stage.children[i];
+    child.alpha -= 0.02;
+    child.y -= 1;
+    if (child.alpha <= 0) stage.removeChildAt(i);
+  }
+}
 
 class GameState {
   constructor() {
@@ -157,17 +176,28 @@ class GameState {
   processMatches() {
     var matches = this.findMatches();
     for (var match of matches) {
+      var scx, scy;
       if (match[2] == 0) {
         // horizontal
         for (var i = 0; i < match[3]; ++i)
           this.setTile(match[0], match[1] + i, EMPTY_TILE);
+        [scx, scy] = this.tileToMouseXY(
+          match[1] + 0.5 + match[3] / 2,
+          match[0] + 0.5
+        );
       } else if (match[2] == 1) {
         // vertical
         for (var i = 0; i < match[3]; ++i)
           this.setTile(match[0] + i, match[1], EMPTY_TILE);
+        [scx, scy] = this.tileToMouseXY(
+          match[1] + 0.5,
+          match[0] + 0.5 + match[3] / 2
+        );
       }
       // Award score
-      this.score += Math.floor((1 + 0.1 * this.combo) * matchValue(match[3]));
+      var amt = Math.floor((1 + 0.1 * this.combo) * matchValue(match[3]));
+      this.score += amt;
+      spawnNumber(this.digitStage, amt, scx, scy);
       this.norma -= match[3];
     }
     this.checkFalls();
@@ -206,7 +236,7 @@ class GameState {
     this.swapTick = 0;
     this.swapRow = y;
     this.swapCol = x;
-    this.combo = 0;
+    if (this.fallCount == 0) this.combo = 0;
   }
   advance() {
     if (this.bottomRow == 0) this.bottomRow = HEIGHT - 1;
@@ -275,7 +305,7 @@ class GameState {
       if (matched) ++this.combo;
     } 
   }
-  renderTiles(stage, tiles) {
+  renderTiles(stage) {
     var offset = -this.progress - 1;
     stage.removeChildren();
     for (var j = 0; j < HEIGHT; ++j) {
@@ -341,6 +371,7 @@ var imageFiles = [
   { name: "tiles", url: "tiles.png" },
   { name: "stgframe", url: "stgframe.png" },
   { name: "selector", url: "selector.png" },
+  { name: "digits", url: "digits.png" },
 ];
 
 var tileLocations = [
@@ -364,11 +395,15 @@ view.onclick = function (e) {
   state.processClick();
 }
 
+var digits = [];
+var tiles;
+
 function setup() {
   function loop() {
     requestAnimationFrame(loop);
     state.tick();
     state.renderTiles(tileStage, tiles);
+    updateDigitStage(digitStage);
     scoreText.text = "Score: " + state.score;
     scoreText.text += "\nLevel: " + state.level;
     scoreText.text += "\n(to next) " + state.norma;
@@ -387,11 +422,16 @@ function setup() {
     resources["peanutButter"].texture
   );
 
-  var tiles = tileLocations.map((val) => {
+  tiles = tileLocations.map((val) => {
     var rectangle = new Rectangle(val[0], val[1], val[2] - val[0], val[3] - val[1]);
     var atile = new Texture(TextureCache["tiles"], rectangle);
     return atile;
   });
+  for (var i = 0; i < 10; ++i) {
+    var rectangle = new Rectangle(8 * i, 0, 8, 16);
+    var atile = new Texture(TextureCache["digits"], rectangle);
+    digits.push(atile);
+  }
 
   var tileStage = new ParticleContainer(
     15000, 
@@ -405,6 +445,16 @@ function setup() {
   tileStage.position.x = 50;
   tileStage.position.y = 30;
   stage.addChild(tileStage);
+  var digitStage = new ParticleContainer(
+    15000, 
+    {
+      rotation: false,
+      alpha: true,
+      scale: false,
+      uvs: true
+    }
+  );
+  stage.addChild(digitStage);
 
   var stgframe = new Sprite(resources["stgframe"].texture);
   stage.addChild(stgframe);
@@ -422,6 +472,7 @@ function setup() {
   stage.addChild(scoreText);
 
   state = new GameState();
+  state.digitStage = digitStage;
 
   loop();
 }
