@@ -41,7 +41,7 @@ function spawnNumber(stage, n, x, y) {
 function updateDigitStage(stage) {
   for (var i = stage.children.length - 1; i >= 0; --i) {
     var child = stage.children[i];
-    child.alpha -= 0.02;
+    child.alpha -= 0.015;
     child.y -= 1;
     if (child.alpha <= 0) stage.removeChildAt(i);
   }
@@ -84,7 +84,8 @@ class GameState {
     this.field[this.getAbsoluteRow(row) * WIDTH + col] = val;
   }
   randomTile() {
-    return Math.floor(Math.random() * 4) + 1;
+    var numTiles = Math.min(6, 4 + Math.floor(this.level / 2));
+    return Math.floor(Math.random() * numTiles) + 1;
   }
   fillIncoming() {
     for (var i = 0; i < WIDTH; ++i) {
@@ -173,31 +174,34 @@ class GameState {
     // Initiate fall
     this.fallTick = 0;
   }
+  spawnNumberTC(n, x, y) {
+    var [scx, scy] = this.tileToMouseXY(x + 0.5, y + 0.5);
+    spawnNumber(this.digitStage, n, scx, scy);
+  }
   processMatches() {
     var matches = this.findMatches();
     for (var match of matches) {
-      var scx, scy;
+      var x, y;
       if (match[2] == 0) {
         // horizontal
         for (var i = 0; i < match[3]; ++i)
           this.setTile(match[0], match[1] + i, EMPTY_TILE);
-        [scx, scy] = this.tileToMouseXY(
-          match[1] + 0.5 + match[3] / 2,
-          match[0] + 0.5
-        );
+        x = match[1] + (match[3] - 1) / 2;
+        y = match[0];
       } else if (match[2] == 1) {
         // vertical
         for (var i = 0; i < match[3]; ++i)
           this.setTile(match[0] + i, match[1], EMPTY_TILE);
-        [scx, scy] = this.tileToMouseXY(
-          match[1] + 0.5,
-          match[0] + 0.5 + match[3] / 2
-        );
+        x = match[1];
+        y = match[0] + (match[3] - 1) / 2;
       }
       // Award score
-      var amt = Math.floor((1 + 0.1 * this.combo) * matchValue(match[3]));
+      var amt = Math.floor(
+        (1 + 0.1 * this.combo) *
+        (1 + 0.1 * this.level) *
+        matchValue(match[3]));
       this.score += amt;
-      spawnNumber(this.digitStage, amt, scx, scy);
+      this.spawnNumberTC(amt, x, y);
       this.norma -= match[3];
     }
     this.checkFalls();
@@ -238,6 +242,31 @@ class GameState {
     this.swapCol = x;
     if (this.fallCount == 0) this.combo = 0;
   }
+  levelUp() {
+    // What is the lowest row with empty tiles?
+    var lowest = 0;
+    outer:
+    for (lowest = 0; lowest < HEIGHT; ++lowest) {
+      for (var col = 0; col < WIDTH; ++col) {
+        if (this.getTile(lowest, col) == EMPTY_TILE)
+          break outer;
+      }
+    }
+    // More points for more risky starts
+    var bonusPerTile = 100 + 10 * lowest + 10 * this.level;
+    for (var row = lowest; row < HEIGHT; ++row) {
+      for (var col = 0; col < WIDTH; ++col) {
+        if (this.getTile(row, col) != EMPTY_TILE) {
+          this.setTile(row, col, EMPTY_TILE);
+          this.score += bonusPerTile;
+          this.spawnNumberTC(bonusPerTile, col, row);
+        }
+      }
+    }
+    ++this.level;
+    this.norma += 100 + 20 * this.level;
+    this.checkFalls();
+  }
   advance() {
     if (this.bottomRow == 0) this.bottomRow = HEIGHT - 1;
     else --this.bottomRow;
@@ -262,7 +291,15 @@ class GameState {
         // var distance = this.fallTick / FALL_TIME;
         for (var j = 1; j < HEIGHT; ++j) {
           for (var i = 0; i < WIDTH; ++i) {
-            if (this.getTile(j, i) == EMPTY_TILE) continue;
+            if (this.getTile(j, i) == EMPTY_TILE) {
+              // Sanity check
+              if (this.falling[(j - 1) * WIDTH + i] != 0) {
+                --this.fallCount;
+                console.log(`(${j}, ${i}) is empty but registered as falling`);
+              }
+              this.falling[(j - 1) * WIDTH + i] = 0;
+              continue;
+            }
             if (this.falling[(j - 1) * WIDTH + i] == 0) continue;
             // Is the block 2 spaces below occupied and not falling?
             // Alternatively, is the block at the bottom?
@@ -293,17 +330,30 @@ class GameState {
         var rightBlock = this.getTile(this.swapRow, this.swapCol + 1);
         this.setTile(this.swapRow, this.swapCol, rightBlock);
         this.setTile(this.swapRow, this.swapCol + 1, leftBlock);
+        if (this.swapRow > 0) {
+          if (leftBlock == EMPTY_TILE) {
+            if (this.falling[(this.swapRow - 1) * WIDTH + this.swapCol] != 0)
+              --this.fallCount;
+            this.falling[(this.swapRow - 1) * WIDTH + this.swapCol] = 0;
+          }
+          if (rightBlock == EMPTY_TILE) {
+            if (this.falling[(this.swapRow - 1) * WIDTH + this.swapCol + 1] != 0)
+              --this.fallCount;
+            this.falling[(this.swapRow - 1) * WIDTH + this.swapCol + 1] = 0;
+          }
+        }
       }
     }
     if (!this.swapping && this.fallCount == 0) {
-      this.progress += 1 / 120;
+      this.progress += Math.min(4, 1 + 0.15 * this.level) / 120;
       if (this.progress >= 1) {
         this.progress -= 1;
         this.advance();
       }
       var matched = this.processMatches();
       if (matched) ++this.combo;
-    } 
+    }
+    if (this.norma < 0) this.levelUp();
   }
   renderTiles(stage) {
     var offset = -this.progress - 1;
@@ -379,6 +429,8 @@ var tileLocations = [
   [32, 0, 64, 32],
   [64, 0, 96, 32],
   [96, 0, 128, 32],
+  [128, 0, 160, 32],
+  [160, 0, 192, 32],
 ];
 
 var state;
