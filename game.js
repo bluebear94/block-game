@@ -72,6 +72,10 @@ class GameState {
       this.incoming[i] = this.randomTile();
     }
   }
+  isBlockAboveFalling(row, col) {
+    if (row == HEIGHT - 1) return false;
+    return this.falling[row * WIDTH + col] != 0;
+  }
   horizontalFrom(row, col) {
     if (col == WIDTH - 1) return 1; // Sanity check
     var first = this.getTile(row, col);
@@ -196,6 +200,8 @@ class GameState {
     var leftBlock = this.getTile(y, x);
     var rightBlock = this.getTile(y, x + 1);
     if (leftBlock == EMPTY_TILE && rightBlock == EMPTY_TILE) return;
+    if (this.isBlockAboveFalling(y, x) || this.isBlockAboveFalling(y, x + 1))
+      return; // Cannot swap on a falling block
     this.swapping = true;
     this.swapTick = 0;
     this.swapRow = y;
@@ -219,7 +225,7 @@ class GameState {
   }
   tick() {
     // A single game tick.
-    if (this.fallCount != 0) {
+    if (this.fallCount != 0 && !this.swapping) {
       // If blocks are still falling, don't advance the game.
       // Instead, wait for the blocks to finish falling.
       if (this.fallTick % FALL_TIME == 0 && this.fallTick != 0) {
@@ -288,10 +294,10 @@ class GameState {
           if (i == this.swapCol) {
             // Left block
             sprite.x += 16 - 16 * Math.cos(angle);
-            sprite.y -= 32 * Math.sin(angle);
+            sprite.y -= 16 * Math.sin(angle);
           } else if (i == this.swapCol + 1) {
             sprite.x += -16 + 16 * Math.cos(angle);
-            sprite.y += 32 * Math.sin(angle);
+            sprite.y += 16 * Math.sin(angle);
           }
         }
         stage.addChild(sprite);
