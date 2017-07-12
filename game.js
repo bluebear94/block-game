@@ -9,7 +9,7 @@ const RED = 1;
 const GREEN = 2;
 const BLUE = 3;
 const PURPLE = 4;
-const FALL_TIME = 15; // frames to fall one block
+const FALL_TIME = 10; // frames to fall one block
 const SWAP_TIME = 8;
 const MATCH_VALUES = [
   // Start with 3
@@ -79,7 +79,8 @@ class GameState {
     var col2;
     for (col2 = col + 1; col2 < WIDTH; ++col2) {
       var tile = this.getTile(row, col2);
-      if (first != tile) return col2 - col;
+      if (first != tile || (row > 0 && this.falling[(row - 1) * WIDTH + col2]))
+        return col2 - col;
     }
     return col2 - col;
   }
@@ -90,7 +91,8 @@ class GameState {
     var row2;
     for (row2 = row + 1; row2 < HEIGHT; ++row2) {
       var tile = this.getTile(row2, col);
-      if (first != tile) return row2 - row;
+      if (first != tile || (row > 0 && this.falling[(row2 - 1) * WIDTH + col]))
+        return row2 - row;
     }
     return row2 - row;
   }
@@ -123,20 +125,25 @@ class GameState {
     return matches;
   }
   checkFalls() {
+    this.fallCount = 0;
     for (var j = 1; j < HEIGHT; ++j) {
       for (var i = 0; i < WIDTH; ++i) {
         var tileno = this.getTile(j, i);
-        if (tileno == EMPTY_TILE) continue;
+        if (tileno == EMPTY_TILE) {
+          this.falling[WIDTH * (j - 1) + i] = 0;
+          continue;
+        }
         var btileno = this.getTile(j - 1, i);
         var suspended =
           (btileno == EMPTY_TILE) ||
-          (j >= 2 && this.fallBuffer[WIDTH * (j - 2) + i] == 1);
+          (j >= 2 && this.falling[WIDTH * (j - 2) + i] == 1);
         if (suspended) {
           // The tile above should fall.
           ++this.fallCount;
-          this.fallBuffer[WIDTH * (j - 1) + i] = 1;
+          this.falling[WIDTH * (j - 1) + i] = 1;
         } else {
-          this.fallBuffer[WIDTH * (j - 1) + i] = 0;
+          // It shouldn't.
+          this.falling[WIDTH * (j - 1) + i] = 0;
         }
       }
     }
@@ -216,23 +223,26 @@ class GameState {
       // If blocks are still falling, don't advance the game.
       // Instead, wait for the blocks to finish falling.
       if (this.fallTick % FALL_TIME == 0 && this.fallTick != 0) {
-        var distance = this.fallTick / FALL_TIME;
+        // var distance = this.fallTick / FALL_TIME;
         for (var j = 1; j < HEIGHT; ++j) {
           for (var i = 0; i < WIDTH; ++i) {
             if (this.getTile(j, i) == EMPTY_TILE) continue;
-            if (this.fallBuffer[(j - 1) * WIDTH + i] == 0) continue;
-            // Is the block (distance + 1) blocks below occupied?
+            if (this.falling[(j - 1) * WIDTH + i] == 0) continue;
+            // Is the block 2 spaces below occupied and not falling?
             // Alternatively, is the block at the bottom?
             var onGround =
-              (j - distance == 0) ||
-              (this.getTile(j - distance - 1, i) != EMPTY_TILE &&
-                this.fallBuffer[(j - distance - 1) * WIDTH + i] == 0);
+              (j - 1 == 0) ||
+              (this.getTile(j - 2, i) != EMPTY_TILE &&
+                this.falling[(j - 2) * WIDTH + i] == 0);
+            var tileno = this.getTile(j, i);
+            this.setTile(j, i, EMPTY_TILE);
+            this.setTile(j - 1, i, tileno);
             if (onGround) {
-              this.fallBuffer[(j - 1) * WIDTH + i] = 0;
+              this.falling[(j - 1) * WIDTH + i] = 0;
               --this.fallCount;
-              var tileno = this.getTile(j, i);
-              this.setTile(j, i, EMPTY_TILE);
-              this.setTile(j - distance, i, tileno);
+            } else {
+              this.falling[(j - 1) * WIDTH + i] = 0;
+              this.falling[(j - 2) * WIDTH + i] = 1;
             }
           }
         }
@@ -268,11 +278,11 @@ class GameState {
         if (tileno == EMPTY_TILE) continue;
         var onGround =
           (j == 0) ||
-          (this.fallBuffer[(j - 1) * WIDTH + i] == 0);
+          (this.falling[(j - 1) * WIDTH + i] == 0);
         var sprite = new Sprite(tiles[tileno - 1]);
         sprite.x = 32 * i;
         sprite.y = (HEIGHT - j + offset) * 32;
-        if (!onGround) sprite.y += 32 * this.fallTick / FALL_TIME;
+        if (!onGround) sprite.y += 32 * ((this.fallTick - 1) % FALL_TIME) / FALL_TIME;
         if (this.swapping && j == this.swapRow) {
           var angle = Math.PI * this.swapTick / SWAP_TIME;
           if (i == this.swapCol) {
